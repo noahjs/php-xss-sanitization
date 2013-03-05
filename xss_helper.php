@@ -11,10 +11,10 @@
  */
 function s( $data, $type = false){
 
-	switch( $type ){
+    switch( $type ){
 
-		case 'url':
-            // Encodes & =>
+        case 'url':
+            // Encodes &
             return _xss_sanitization_esc_url( $data, 'display' );
             break;
         
@@ -25,7 +25,7 @@ function s( $data, $type = false){
 
         case 'attribute':
         case 'attr':
-            // Inside HTML attribute or Meta tag
+            // Inside HTML attribute or Meta tag, like <input value="$var" />
             return _xss_sanitization_esc_attr( $data );
             break;
 
@@ -36,20 +36,21 @@ function s( $data, $type = false){
             break;
         
         case 'storedhtml':
-            // for inside javascript, remove Single quotes
+            // Full html stored in DB, think Tiny_mce
             return _xss_sanitization_sanitize_stored_html( $data );
             break;
         
         case 'textarea':
-            // for inside javascript, remove Single quotes
+            // for inside textarea blocks
             return _xss_sanitization_esc_textarea( $data );
             break;
             
         case 'text':
         case 'html':
-		default:
-			return _xss_sanitization_esc_html( $data );
-	}
+        default:
+            // Default behaviour encodes all entities (code break URLs etc, which is ok in these circumstances)
+            return _xss_sanitization_esc_html( $data );
+    }
 }
 
 /**
@@ -99,7 +100,7 @@ function _xss_sanitization_esc_js( $text ) {
  * @return string The cleaned $url
  */
 function _xss_sanitization_esc_url( $url, $_context = 'display' ) {
-    
+
     // URL protocols
     $protocols = array('http', 'https', 'ftp', 'ftps', 'mailto', 'news', 'irc', 'gopher', 'nntp', 'feed', 'telnet', 'mms', 'rtsp', 'svn');
     
