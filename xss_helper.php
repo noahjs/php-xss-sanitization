@@ -1,5 +1,4 @@
 <?php
-
 /**
  * Escapes data
  *
@@ -13,109 +12,62 @@
 function s( $data, $type = false){
 
 	switch( $type ){
+
 		case 'url':
-			// remove quotes but DONT html entitity the slashes etc
-			break;
-        case 'sql':
-            // SQL escape
+            // Encodes & =>
+            return _xss_sanitization_esc_url( $data, 'display' );
             break;
-        case 'html':
+        
+        case 'rawurl':
+            // Leaves & 
+            return _xss_sanitization_esc_url( $data, 'raw' );
+            break;
+
+        case 'attribute':
+        case 'attr':
+            // Inside HTML attribute or Meta tag
+            return _xss_sanitization_esc_attr( $data );
+            break;
+
+        case 'javascript':
+        case 'script':
+            // for inside javascript variable, remove Single quotes
+            return _xss_sanitization_esc_js( $data );
+            break;
+        
+        case 'storedhtml':
             // for inside javascript, remove Single quotes
+            return _xss_sanitization_sanitize_stored_html( $data );
             break;
-
-
+        
+        case 'textarea':
+            // for inside javascript, remove Single quotes
+            return _xss_sanitization_esc_textarea( $data );
+            break;
+            
+        case 'text':
+        case 'html':
 		default:
-			return htmlEntities($data, ENT_QUOTES);  //this will escape single quotes too
+			return _xss_sanitization_esc_html( $data );
 	}
 }
 
+/**
+ * Escaping for Stored HTML.
+ *
+* @since 2.8.0
+ *
+* @param string $html
+* @return string
+ */
+function _xss_sanitization_sanitize_stored_html( $html ) {
+    
+    // URL protocols
+    $protocols = array('http', 'https', 'ftp', 'ftps', 'mailto', 'news', 'irc', 'gopher', 'nntp', 'feed', 'telnet', 'mms', 'rtsp', 'svn');
 
+    return kses($html, _xss_sanitization_allowed_tags(), $protocols);
+}
 
-/**
- * Escapes data for use in a MySQL query
- *
- * This is just a handy shortcut for $wpdb->escape(), for completeness' sake
- *
-* @since 2.8.0
-* @param string $sql Unescaped SQL data
-* @return string The cleaned $sql
- */
-function esc_sql( $sql ) {
-        global $wpdb;
-        return $wpdb->escape( $sql );
-}
-/**
- * Checks and cleans a URL.
- *
- * A number of characters are removed from the URL. If the URL is for displaying
- * (the default behaviour) ampersands are also replaced. The 'clean_url' filter
- * is applied to the returned cleaned URL.
- *
-* @since 2.8.0
-* @uses wp_kses_bad_protocol() To only permit protocols in the URL set
- *              via $protocols or the common ones set in the function.
- *
-* @param string $url The URL to be cleaned.
-* @param array $protocols Optional. An array of acceptable protocols.
- *              Defaults to 'http', 'https', 'ftp', 'ftps', 'mailto', 'news', 'irc', 'gopher', 'nntp', 'feed', 'telnet', 'mms', 'rtsp', 'svn' if not set.
-* @param string $_context Private. Use esc_url_raw() for database usage.
-* @return string The cleaned $url after the 'clean_url' filter is applied.
- */
-function esc_url( $url, $protocols = null, $_context = 'display' ) {
-        $original_url = $url;
-        if ( '' == $url )
-                return $url;
-        $url = preg_replace('|[^a-z0-9-~+_.?#=!&;,/:%@$\|*\'()\\x80-\\xff]|i', '', $url);
-        $strip = array('%0d', '%0a', '%0D', '%0A');
-        $url = _deep_replace($strip, $url);
-        $url = str_replace(';//', '://', $url);
-        /* If the URL doesn't appear to contain a scheme, we
-         * presume it needs http:// appended (unless a relative
-         * link starting with /, # or ? or a php file).
-         */
-        if ( strpos($url, ':') === false && ! in_array( $url[0], array( '/', '#', '?' ) ) &&
-                ! preg_match('/^[a-z0-9-]+?\.php/i', $url) )
-                $url = 'http://' . $url;
-        // Replace ampersands and single quotes only when displaying.
-        if ( 'display' == $_context ) {
-                $url = wp_kses_normalize_entities( $url );
-                $url = str_replace( '&amp;', '&#038;', $url );
-                $url = str_replace( "'", '&#039;', $url );
-        }
-        if ( ! is_array( $protocols ) )
-                $protocols = wp_allowed_protocols();
-        if ( wp_kses_bad_protocol( $url, $protocols ) != $url )
-                return '';
-        return apply_filters('clean_url', $url, $original_url, $_context);
-}
-/**
- * Performs esc_url() for database usage.
- *
-* @since 2.8.0
-* @uses esc_url()
- *
-* @param string $url The URL to be cleaned.
-* @param array $protocols An array of acceptable protocols.
-* @return string The cleaned URL.
- */
-function esc_url_raw( $url, $protocols = null ) {
-        return esc_url( $url, $protocols, 'db' );
-}
-/**
- * Convert entities, while preserving already-encoded entities.
- *
-* @link http://www.php.net/htmlentities Borrowed from the PHP Manual user notes.
- *
-* @since 1.2.2
- *
-* @param string $myHTML The text to be converted.
-* @return string Converted text.
- */
-function htmlentities2($myHTML) {
-        $translation_table = get_html_translation_table( HTML_ENTITIES, ENT_QUOTES );
-        $translation_table[chr(38)] = '&';
-        return preg_replace( "/&(?![A-Za-z]{0,4}\w{2,3};|#[0-9]{2,3};)/", "&amp;", strtr($myHTML, $translation_table) );
-}
 /**
  * Escape single quotes, htmlspecialchar " < > &, and fix line endings.
  *
@@ -128,14 +80,71 @@ function htmlentities2($myHTML) {
 * @param string $text The text to be escaped.
 * @return string Escaped text.
  */
-function esc_js( $text ) {
+function _xss_sanitization_esc_js( $text ) {
         $safe_text = wp_check_invalid_utf8( $text );
         $safe_text = _wp_specialchars( $safe_text, ENT_COMPAT );
         $safe_text = preg_replace( '/&#(x)?0*(?(1)27|39);?/i', "'", stripslashes( $safe_text ) );
         $safe_text = str_replace( "\r", '', $safe_text );
         $safe_text = str_replace( "\n", '\\n', addslashes( $safe_text ) );
-        return apply_filters( 'js_escape', $safe_text, $text );
+        return $safe_text;
 }
+
+/**
+ * Checks and cleans a URL.
+ *
+ * A number of characters are removed from the URL. If the URL is for displaying
+ * (the default behaviour) ampersands are also replaced. The 'clean_url' filter
+ * is applied to the returned cleaned URL.
+ *
+ * @return string The cleaned $url
+ */
+function _xss_sanitization_esc_url( $url, $_context = 'display' ) {
+    
+    // URL protocols
+    $protocols = array('http', 'https', 'ftp', 'ftps', 'mailto', 'news', 'irc', 'gopher', 'nntp', 'feed', 'telnet', 'mms', 'rtsp', 'svn');
+    
+    // Init
+    $original_url = $url;
+    
+    // If blank, then no harm
+    if ( '' == $url ) {
+        return $url;
+    }
+
+    //Start cleaning
+    $url = preg_replace('|[^a-z0-9-~+_.?#=!&;,/:%@$\|*\'()\\x80-\\xff]|i', '', $url);
+    
+    $strip = array('%0d', '%0a', '%0D', '%0A');
+    $url = wp_deep_replace($strip, $url);
+
+    // Make sure its not a ;//
+    $url = str_replace(';//', '://', $url);
+    
+    /* If the URL doesn't appear to contain a scheme, we
+     * presume it needs http:// appended (unless a relative
+     * link starting with /, # or ? or a php file).
+     */
+    if (    strpos($url, ':') === false && 
+            ! in_array( $url[0], array( '/', '#', '?' ) ) &&
+            ! preg_match('/^[a-z0-9-]+?\.php/i', $url) 
+           ){
+        $url = 'http://' . $url;
+    }
+
+    // Replace ampersands and single quotes only when displaying.
+    if ( 'display' == $_context ) {
+        $url = kses_normalize_entities( $url );
+        $url = str_replace( '&amp;', '&#038;', $url );
+        $url = str_replace( "'", '&#039;', $url );
+    }
+
+    if ( kses_bad_protocol( $url, $protocols ) != $url ){
+        return '';
+    }
+
+    return $url;
+}
+
 /**
  * Escaping for HTML blocks.
  *
@@ -144,11 +153,12 @@ function esc_js( $text ) {
 * @param string $text
 * @return string
  */
-function esc_html( $text ) {
+function _xss_sanitization_esc_html( $text ) {
         $safe_text = wp_check_invalid_utf8( $text );
         $safe_text = _wp_specialchars( $safe_text, ENT_QUOTES );
-        return apply_filters( 'esc_html', $safe_text, $text );
+        return $safe_text;
 }
+
 /**
  * Escaping for HTML attributes.
  *
@@ -157,11 +167,12 @@ function esc_html( $text ) {
 * @param string $text
 * @return string
  */
-function esc_attr( $text ) {
+function _xss_sanitization_esc_attr( $text ) {
         $safe_text = wp_check_invalid_utf8( $text );
         $safe_text = _wp_specialchars( $safe_text, ENT_QUOTES );
-        return apply_filters( 'attribute_escape', $safe_text, $text );
+        return $safe_text;
 }
+
 /**
  * Escaping for textarea values.
  *
@@ -170,30 +181,1056 @@ function esc_attr( $text ) {
 * @param string $text
 * @return string
  */
-function esc_textarea( $text ) {
+function _xss_sanitization_esc_textarea( $text ) {
         $safe_text = htmlspecialchars( $text, ENT_QUOTES );
-        return apply_filters( 'esc_textarea', $safe_text, $text );
+        return $safe_text;
 }
-/**
- * Escape a HTML tag name.
- *
-* @since 2.5.0
- *
-* @param string $tag_name
-* @return string
- */
-function tag_escape($tag_name) {
-        $safe_tag = strtolower( preg_replace('/[^a-zA-Z0-9_:]/', '', $tag_name) );
-        return apply_filters('tag_escape', $safe_tag, $tag_name);
+
+
+
+// ********** HELPER FUNCTIONS **********
+
+
+
+function wp_deep_replace( $search, $subject ) {
+    $found = true;
+    $subject = (string) $subject;
+    while ( $found ) {
+        $found = false;
+        foreach ( (array) $search as $val ) {
+            while ( strpos( $subject, $val ) !== false ) {
+                $found = true;
+                $subject = str_replace( $val, '', $subject );
+            }
+        }
+    }
+
+    return $subject;
 }
-/**
- * Escapes text for SQL LIKE special characters % and _.
- *
-* @since 2.5.0
- *
-* @param string $text The text to be escaped.
-* @return string text, safe for inclusion in LIKE query.
- */
-function like_escape($text) {
-        return str_replace(array("%", "_"), array("\\%", "\\_"), $text);
+
+
+function wp_check_invalid_utf8( $string, $strip = false ) {
+    $string = (string) $string;
+
+    if ( 0 === strlen( $string ) ) {
+        return '';
+    }
+
+    // Check for support for utf8 in the installed PCRE library once and store the result in a static
+    static $utf8_pcre;
+    if ( !isset( $utf8_pcre ) ) {
+        $utf8_pcre = @preg_match( '/^./u', 'a' );
+    }
+    // We can't demand utf8 in the PCRE installation, so just return the string in those cases
+    if ( !$utf8_pcre ) {
+        return $string;
+    }
+
+    // preg_match fails when it encounters invalid UTF8 in $string
+    if ( 1 === @preg_match( '/^./us', $string ) ) {
+        return $string;
+    }
+
+    // Attempt to strip the bad chars if requested (not recommended)
+    if ( $strip && function_exists( 'iconv' ) ) {
+        return iconv( 'utf-8', 'utf-8', $string );
+    }
+
+    return '';
 }
+
+
+
+function _wp_specialchars( $string, $quote_style = ENT_NOQUOTES, $charset = false, $double_encode = false ) {
+
+    // Handle double encoding ourselves
+    if ( $double_encode ) {
+        $string = @htmlspecialchars( $string, $quote_style, $charset );
+    } else {
+        // Decode &amp; into &
+        $string = wp_specialchars_decode( $string, $quote_style );
+
+        // Guarantee every &entity; is valid or re-encode the &
+        $string = kses_normalize_entities( $string );
+
+        // Now re-encode everything except &entity;
+        $string = preg_split( '/(&#?x?[0-9a-z]+;)/i', $string, -1, PREG_SPLIT_DELIM_CAPTURE );
+
+        for ( $i = 0; $i < count( $string ); $i += 2 )
+            $string[$i ] = @htmlspecialchars( $string[$i], $quote_style, 'UTF-8' );
+
+        $string = implode( '', $string );
+    }
+
+    return $string;
+
+}
+
+function wp_specialchars_decode( $string, $quote_style = ENT_NOQUOTES ) {
+    $string = (string) $string;
+
+    if ( 0 === strlen( $string ) ) {
+        return '';
+    }
+
+    // Don't bother if there are no entities - saves a lot of processing
+    if ( strpos( $string, '&' ) === false ) {
+        return $string;
+    }
+
+    // Match the previous behaviour of _wp_specialchars() when the $quote_style is not an accepted value
+    if ( empty( $quote_style ) ) {
+        $quote_style = ENT_NOQUOTES;
+    } elseif ( !in_array( $quote_style, array( 0, 2, 3, 'single', 'double' ), true ) ) {
+        $quote_style = ENT_QUOTES;
+    }
+
+    // More complete than get_html_translation_table( HTML_SPECIALCHARS )
+    $single = array( '&#039;'  => '\'',  '&#039;&#x27;&#039;'  => '\'' );
+    $single_preg = array( '/&#0*39;/'  => '&#039;',  '&#039;/&#x0*27;/i&#039;'  =>  '&#039;&#x27;&#039;'  );
+    $double = array( '&quot;' => '"', '&#034;'  => '"',  '&#039;&#x22;&#039;'  => '"' );
+    $double_preg = array( '/&#0*34;/'  => '&#034;',  '&#039;/&#x0*22;/i&#039;'  =>  '&#039;&#x22;&#039;'  );
+    $others = array( '&lt;'   => '<', '&#060;'  => '<', '&gt;'   => '>', '&#062;'  => '>', '&amp;'  => '&', '&#038;'  => '&',  '&#039;&#x26;&#039;'  => '&' );
+    $others_preg = array( '/&#0*60;/'  => '&#060;', '/&#0*62;/'  => '&#062;', '/&#0*38;/'  => '&#038;',  '&#039;/&#x0*26;/i&#039;'  =>  '&#039;&#x26;&#039;'  );
+
+    if ( $quote_style === ENT_QUOTES ) {
+        $translation = array_merge( $single, $double, $others );
+        $translation_preg = array_merge( $single_preg, $double_preg, $others_preg );
+    } elseif ( $quote_style === ENT_COMPAT || $quote_style === 'double' ) {
+        $translation = array_merge( $double, $others );
+        $translation_preg = array_merge( $double_preg, $others_preg );
+    } elseif ( $quote_style === 'single' ) {
+        $translation = array_merge( $single, $others );
+        $translation_preg = array_merge( $single_preg, $others_preg );
+    } elseif ( $quote_style === ENT_NOQUOTES ) {
+        $translation = $others;
+        $translation_preg = $others_preg;
+    }
+
+    // Remove zero padding on numeric entities
+    $string = preg_replace( array_keys( $translation_preg ), array_values( $translation_preg ), $string );
+
+    // Replace characters according to translation table
+    return strtr( $string, $translation );
+}
+
+
+function _xss_sanitization_allowed_tags(){
+
+        return array(
+                'address' => array(),
+                'a' => array(
+                        'href' => true,
+                        'rel' => true,
+                        'rev' => true,
+                        'name' => true,
+                        'target' => true,
+                ),
+                'abbr' => array(),
+                'acronym' => array(),
+                'area' => array(
+                        'alt' => true,
+                        'coords' => true,
+                        'href' => true,
+                        'nohref' => true,
+                        'shape' => true,
+                        'target' => true,
+                ),
+                'article' => array(
+                        'align' => true,
+                        'dir' => true,
+                        'lang' => true,
+                        'xml:lang' => true,
+                ),
+                'aside' => array(
+                        'align' => true,
+                        'dir' => true,
+                        'lang' => true,
+                        'xml:lang' => true,
+                ),
+                'b' => array(),
+                'big' => array(),
+                'blockquote' => array(
+                        'cite' => true,
+                        'lang' => true,
+                        'xml:lang' => true,
+                ),
+                'br' => array(),
+                'button' => array(
+                        'disabled' => true,
+                        'name' => true,
+                        'type' => true,
+                        'value' => true,
+                ),
+                'caption' => array(
+                        'align' => true,
+                ),
+                'cite' => array(
+                        'dir' => true,
+                        'lang' => true,
+                ),
+                'code' => array(),
+                'col' => array(
+                        'align' => true,
+                        'char' => true,
+                        'charoff' => true,
+                        'span' => true,
+                        'dir' => true,
+                        'valign' => true,
+                        'width' => true,
+                ),
+                'del' => array(
+                        'datetime' => true,
+                ),
+                'dd' => array(),
+                'details' => array(
+                        'align' => true,
+                        'dir' => true,
+                        'lang' => true,
+                        'open' => true,
+                        'xml:lang' => true,
+                ),
+                'div' => array(
+                        'align' => true,
+                        'dir' => true,
+                        'lang' => true,
+                        'xml:lang' => true,
+                ),
+                'dl' => array(),
+                'dt' => array(),
+                'em' => array(),
+                'fieldset' => array(),
+                'figure' => array(
+                        'align' => true,
+                        'dir' => true,
+                        'lang' => true,
+                        'xml:lang' => true,
+                ),
+                'figcaption' => array(
+                        'align' => true,
+                        'dir' => true,
+                        'lang' => true,
+                        'xml:lang' => true,
+                ),
+                'font' => array(
+                        'color' => true,
+                        'face' => true,
+                        'size' => true,
+                ),
+                'footer' => array(
+                        'align' => true,
+                        'dir' => true,
+                        'lang' => true,
+                        'xml:lang' => true,
+                ),
+                'form' => array(
+                        'action' => true,
+                        'accept' => true,
+                        'accept-charset' => true,
+                        'enctype' => true,
+                        'method' => true,
+                        'name' => true,
+                        'target' => true,
+                ),
+                'h1' => array(
+                        'align' => true,
+                ),
+                'h2' => array(
+                        'align' => true,
+                ),
+                'h3' => array(
+                        'align' => true,
+                ),
+                'h4' => array(
+                        'align' => true,
+                ),
+                'h5' => array(
+                        'align' => true,
+                ),
+                'h6' => array(
+                        'align' => true,
+                ),
+                'header' => array(
+                        'align' => true,
+                        'dir' => true,
+                        'lang' => true,
+                        'xml:lang' => true,
+                ),
+                'hgroup' => array(
+                        'align' => true,
+                        'dir' => true,
+                        'lang' => true,
+                        'xml:lang' => true,
+                ),
+                'hr' => array(
+                        'align' => true,
+                        'noshade' => true,
+                        'size' => true,
+                        'width' => true,
+                ),
+                'i' => array(),
+                'img' => array(
+                        'alt' => true,
+                        'align' => true,
+                        'border' => true,
+                        'height' => true,
+                        'hspace' => true,
+                        'longdesc' => true,
+                        'vspace' => true,
+                        'src' => true,
+                        'usemap' => true,
+                        'width' => true,
+                ),
+                'ins' => array(
+                        'datetime' => true,
+                        'cite' => true,
+                ),
+                'kbd' => array(),
+                'label' => array(
+                        'for' => true,
+                ),
+                'legend' => array(
+                        'align' => true,
+                ),
+                'li' => array(
+                        'align' => true,
+                ),
+                'map' => array(
+                        'name' => true,
+                ),
+                'menu' => array(
+                        'type' => true,
+                ),
+                'nav' => array(
+                        'align' => true,
+                        'dir' => true,
+                        'lang' => true,
+                        'xml:lang' => true,
+                ),
+                'p' => array(
+                        'align' => true,
+                        'dir' => true,
+                        'lang' => true,
+                        'xml:lang' => true,
+                ),
+                'pre' => array(
+                        'width' => true,
+                ),
+                'q' => array(
+                        'cite' => true,
+                ),
+                's' => array(),
+                'span' => array(
+                        'dir' => true,
+                        'align' => true,
+                        'lang' => true,
+                        'xml:lang' => true,
+                ),
+                'section' => array(
+                        'align' => true,
+                        'dir' => true,
+                        'lang' => true,
+                        'xml:lang' => true,
+                ),
+                'small' => array(),
+                'strike' => array(),
+                'strong' => array(),
+                'sub' => array(),
+                'summary' => array(
+                        'align' => true,
+                        'dir' => true,
+                        'lang' => true,
+                        'xml:lang' => true,
+                ),
+                'sup' => array(),
+                'table' => array(
+                        'align' => true,
+                        'bgcolor' => true,
+                        'border' => true,
+                        'cellpadding' => true,
+                        'cellspacing' => true,
+                        'dir' => true,
+                        'rules' => true,
+                        'summary' => true,
+                        'width' => true,
+                ),
+                'tbody' => array(
+                        'align' => true,
+                        'char' => true,
+                        'charoff' => true,
+                        'valign' => true,
+                ),
+                'td' => array(
+                        'abbr' => true,
+                        'align' => true,
+                        'axis' => true,
+                        'bgcolor' => true,
+                        'char' => true,
+                        'charoff' => true,
+                        'colspan' => true,
+                        'dir' => true,
+                        'headers' => true,
+                        'height' => true,
+                        'nowrap' => true,
+                        'rowspan' => true,
+                        'scope' => true,
+                        'valign' => true,
+                        'width' => true,
+                ),
+                'textarea' => array(
+                        'cols' => true,
+                        'rows' => true,
+                        'disabled' => true,
+                        'name' => true,
+                        'readonly' => true,
+                ),
+                'tfoot' => array(
+                        'align' => true,
+                        'char' => true,
+                        'charoff' => true,
+                        'valign' => true,
+                ),
+                'th' => array(
+                        'abbr' => true,
+                        'align' => true,
+                        'axis' => true,
+                        'bgcolor' => true,
+                        'char' => true,
+                        'charoff' => true,
+                        'colspan' => true,
+                        'headers' => true,
+                        'height' => true,
+                        'nowrap' => true,
+                        'rowspan' => true,
+                        'scope' => true,
+                        'valign' => true,
+                        'width' => true,
+                ),
+                'thead' => array(
+                        'align' => true,
+                        'char' => true,
+                        'charoff' => true,
+                        'valign' => true,
+                ),
+                'title' => array(),
+                'tr' => array(
+                        'align' => true,
+                        'bgcolor' => true,
+                        'char' => true,
+                        'charoff' => true,
+                        'valign' => true,
+                ),
+                'tt' => array(),
+                'u' => array(),
+                'ul' => array(
+                        'type' => true,
+                ),
+                'ol' => array(
+                        'start' => true,
+                        'type' => true,
+                ),
+                'var' => array(),
+        );
+        /*
+        $allowedentitynames = array(
+                'nbsp',    'iexcl',  'cent',    'pound',  'curren', 'yen',
+                'brvbar',  'sect',   'uml',     'copy',   'ordf',   'laquo',
+                'not',     'shy',    'reg',     'macr',   'deg',    'plusmn',
+                'acute',   'micro',  'para',    'middot', 'cedil',  'ordm',
+                'raquo',   'iquest', 'Agrave',  'Aacute', 'Acirc',  'Atilde',
+                'Auml',    'Aring',  'AElig',   'Ccedil', 'Egrave', 'Eacute',
+                'Ecirc',   'Euml',   'Igrave',  'Iacute', 'Icirc',  'Iuml',
+                'ETH',     'Ntilde', 'Ograve',  'Oacute', 'Ocirc',  'Otilde',
+                'Ouml',    'times',  'Oslash',  'Ugrave', 'Uacute', 'Ucirc',
+                'Uuml',    'Yacute', 'THORN',   'szlig',  'agrave', 'aacute',
+                'acirc',   'atilde', 'auml',    'aring',  'aelig',  'ccedil',
+                'egrave',  'eacute', 'ecirc',   'euml',   'igrave', 'iacute',
+                'icirc',   'iuml',   'eth',     'ntilde', 'ograve', 'oacute',
+                'ocirc',   'otilde', 'ouml',    'divide', 'oslash', 'ugrave',
+                'uacute',  'ucirc',  'uuml',    'yacute', 'thorn',  'yuml',
+                'quot',    'amp',    'lt',      'gt',     'apos',   'OElig',
+                'oelig',   'Scaron', 'scaron',  'Yuml',   'circ',   'tilde',
+                'ensp',    'emsp',   'thinsp',  'zwnj',   'zwj',    'lrm',
+                'rlm',     'ndash',  'mdash',   'lsquo',  'rsquo',  'sbquo',
+                'ldquo',   'rdquo',  'bdquo',   'dagger', 'Dagger', 'permil',
+                'lsaquo',  'rsaquo', 'euro',    'fnof',   'Alpha',  'Beta',
+                'Gamma',   'Delta',  'Epsilon', 'Zeta',   'Eta',    'Theta',
+                'Iota',    'Kappa',  'Lambda',  'Mu',     'Nu',     'Xi',
+                'Omicron', 'Pi',     'Rho',     'Sigma',  'Tau',    'Upsilon',
+                'Phi',     'Chi',    'Psi',     'Omega',  'alpha',  'beta',
+                'gamma',   'delta',  'epsilon', 'zeta',   'eta',    'theta',
+                'iota',    'kappa',  'lambda',  'mu',     'nu',     'xi',
+                'omicron', 'pi',     'rho',     'sigmaf', 'sigma',  'tau',
+                'upsilon', 'phi',    'chi',     'psi',    'omega',  'thetasym',
+                'upsih',   'piv',    'bull',    'hellip', 'prime',  'Prime',
+                'oline',   'frasl',  'weierp',  'image',  'real',   'trade',
+                'alefsym', 'larr',   'uarr',    'rarr',   'darr',   'harr',
+                'crarr',   'lArr',   'uArr',    'rArr',   'dArr',   'hArr',
+                'forall',  'part',   'exist',   'empty',  'nabla',  'isin',
+                'notin',   'ni',     'prod',    'sum',    'minus',  'lowast',
+                'radic',   'prop',   'infin',   'ang',    'and',    'or',
+                'cap',     'cup',    'int',     'sim',    'cong',   'asymp',
+                'ne',      'equiv',  'le',      'ge',     'sub',    'sup',
+                'nsub',    'sube',   'supe',    'oplus',  'otimes', 'perp',
+                'sdot',    'lceil',  'rceil',   'lfloor', 'rfloor', 'lang',
+                'rang',    'loz',    'spades',  'clubs',  'hearts', 'diams',
+        );
+        $allowedposttags = array_map( '_wp_add_global_attributes', $allowedposttags );
+        */
+}
+
+
+
+
+
+# kses 0.2.2 - HTML/XHTML filter that only allows some elements and attributes
+# Copyright (C) 2002, 2003, 2005  Ulf Harnhammar
+#
+# This program is free software and open source software; you can redistribute
+# it and/or modify it under the terms of the GNU General Public License as
+# published by the Free Software Foundation; either version 2 of the License,
+# or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+# FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+# more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA  or visit
+# http://www.gnu.org/licenses/gpl.html
+#
+# *** CONTACT INFORMATION ***
+#
+# E-mail:      metaur at users dot sourceforge dot net
+# Web page:    http://sourceforge.net/projects/kses
+# Paper mail:  Ulf Harnhammar
+#              Ymergatan 17 C
+#              753 25  Uppsala
+#              SWEDEN
+#
+# [kses strips evil scripts!]
+
+
+function kses($string, $allowed_html, $allowed_protocols =
+               array('http', 'https', 'ftp', 'news', 'nntp', 'telnet',
+                     'gopher', 'mailto'))
+###############################################################################
+# This function makes sure that only the allowed HTML element names, attribute
+# names and attribute values plus only sane HTML entities will occur in
+# $string. You have to remove any slashes from PHP's magic quotes before you
+# call this function.
+###############################################################################
+{
+  $string = kses_no_null($string);
+  $string = kses_js_entities($string);
+  $string = kses_normalize_entities($string);
+  $string = kses_hook($string);
+  $allowed_html_fixed = kses_array_lc($allowed_html);
+  return kses_split($string, $allowed_html_fixed, $allowed_protocols);
+} # function kses
+
+
+function kses_hook($string)
+###############################################################################
+# You add any kses hooks here.
+###############################################################################
+{
+  return $string;
+} # function kses_hook
+
+
+function kses_version()
+###############################################################################
+# This function returns kses' version number.
+###############################################################################
+{
+  return '0.2.2';
+} # function kses_version
+
+
+function kses_split($string, $allowed_html, $allowed_protocols)
+###############################################################################
+# This function searches for HTML tags, no matter how malformed. It also
+# matches stray ">" characters.
+###############################################################################
+{
+  return preg_replace('%(<'.   # EITHER: <
+                      '[^>]*'. # things that aren't >
+                      '(>|$)'. # > or end of string
+                      '|>)%e', # OR: just a >
+                      "kses_split2('\\1', \$allowed_html, ".
+                      '$allowed_protocols)',
+                      $string);
+} # function kses_split
+
+
+function kses_split2($string, $allowed_html, $allowed_protocols)
+###############################################################################
+# This function does a lot of work. It rejects some very malformed things
+# like <:::>. It returns an empty string, if the element isn't allowed (look
+# ma, no strip_tags()!). Otherwise it splits the tag into an element and an
+# attribute list.
+###############################################################################
+{
+  $string = kses_stripslashes($string);
+
+  if (substr($string, 0, 1) != '<')
+    return '&gt;';
+    # It matched a ">" character
+
+  if (!preg_match('%^<\s*(/\s*)?([a-zA-Z0-9]+)([^>]*)>?$%', $string, $matches))
+    return '';
+    # It's seriously malformed
+
+  $slash = trim($matches[1]);
+  $elem = $matches[2];
+  $attrlist = $matches[3];
+
+  if (!@isset($allowed_html[strtolower($elem)]))
+    return '';
+    # They are using a not allowed HTML element
+
+  if ($slash != '')
+    return "<$slash$elem>";
+  # No attributes are allowed for closing elements
+
+  return kses_attr("$slash$elem", $attrlist, $allowed_html,
+                   $allowed_protocols);
+} # function kses_split2
+
+
+function kses_attr($element, $attr, $allowed_html, $allowed_protocols)
+###############################################################################
+# This function removes all attributes, if none are allowed for this element.
+# If some are allowed it calls kses_hair() to split them further, and then it
+# builds up new HTML code from the data that kses_hair() returns. It also
+# removes "<" and ">" characters, if there are any left. One more thing it
+# does is to check if the tag has a closing XHTML slash, and if it does,
+# it puts one in the returned code as well.
+###############################################################################
+{
+# Is there a closing XHTML slash at the end of the attributes?
+
+  $xhtml_slash = '';
+  if (preg_match('%\s/\s*$%', $attr))
+    $xhtml_slash = ' /';
+
+# Are any attributes allowed at all for this element?
+
+  if (@count($allowed_html[strtolower($element)]) == 0)
+    return "<$element$xhtml_slash>";
+
+# Split it
+
+  $attrarr = kses_hair($attr, $allowed_protocols);
+
+# Go through $attrarr, and save the allowed attributes for this element
+# in $attr2
+
+  $attr2 = '';
+
+  foreach ($attrarr as $arreach)
+  {
+    if (!@isset($allowed_html[strtolower($element)]
+                            [strtolower($arreach['name'])]))
+      continue; # the attribute is not allowed
+
+    $current = $allowed_html[strtolower($element)]
+                            [strtolower($arreach['name'])];
+
+    if (!is_array($current))
+      $attr2 .= ' '.$arreach['whole'];
+    # there are no checks
+
+    else
+    {
+    # there are some checks
+      $ok = true;
+      foreach ($current as $currkey => $currval)
+        if (!kses_check_attr_val($arreach['value'], $arreach['vless'],
+                                 $currkey, $currval))
+        { $ok = false; break; }
+
+      if ($ok)
+        $attr2 .= ' '.$arreach['whole']; # it passed them
+    } # if !is_array($current)
+  } # foreach
+
+# Remove any "<" or ">" characters
+
+  $attr2 = preg_replace('/[<>]/', '', $attr2);
+
+  return "<$element$attr2$xhtml_slash>";
+} # function kses_attr
+
+
+function kses_hair($attr, $allowed_protocols)
+###############################################################################
+# This function does a lot of work. It parses an attribute list into an array
+# with attribute data, and tries to do the right thing even if it gets weird
+# input. It will add quotes around attribute values that don't have any quotes
+# or apostrophes around them, to make it easier to produce HTML code that will
+# conform to W3C's HTML specification. It will also remove bad URL protocols
+# from attribute values.
+###############################################################################
+{
+  $attrarr = array();
+  $mode = 0;
+  $attrname = '';
+
+# Loop through the whole attribute list
+
+  while (strlen($attr) != 0)
+  {
+    $working = 0; # Was the last operation successful?
+
+    switch ($mode)
+    {
+      case 0: # attribute name, href for instance
+
+        if (preg_match('/^([-a-zA-Z]+)/', $attr, $match))
+        {
+          $attrname = $match[1];
+          $working = $mode = 1;
+          $attr = preg_replace('/^[-a-zA-Z]+/', '', $attr);
+        }
+
+        break;
+
+      case 1: # equals sign or valueless ("selected")
+
+        if (preg_match('/^\s*=\s*/', $attr)) # equals sign
+        {
+          $working = 1; $mode = 2;
+          $attr = preg_replace('/^\s*=\s*/', '', $attr);
+          break;
+        }
+
+        if (preg_match('/^\s+/', $attr)) # valueless
+        {
+          $working = 1; $mode = 0;
+          $attrarr[] = array
+                        ('name'  => $attrname,
+                         'value' => '',
+                         'whole' => $attrname,
+                         'vless' => 'y');
+          $attr = preg_replace('/^\s+/', '', $attr);
+        }
+
+        break;
+
+      case 2: # attribute value, a URL after href= for instance
+
+        if (preg_match('/^"([^"]*)"(\s+|$)/', $attr, $match))
+         # "value"
+        {
+          $thisval = kses_bad_protocol($match[1], $allowed_protocols);
+
+          $attrarr[] = array
+                        ('name'  => $attrname,
+                         'value' => $thisval,
+                         'whole' => "$attrname=\"$thisval\"",
+                         'vless' => 'n');
+          $working = 1; $mode = 0;
+          $attr = preg_replace('/^"[^"]*"(\s+|$)/', '', $attr);
+          break;
+        }
+
+        if (preg_match("/^'([^']*)'(\s+|$)/", $attr, $match))
+         # 'value'
+        {
+          $thisval = kses_bad_protocol($match[1], $allowed_protocols);
+
+          $attrarr[] = array
+                        ('name'  => $attrname,
+                         'value' => $thisval,
+                         'whole' => "$attrname='$thisval'",
+                         'vless' => 'n');
+          $working = 1; $mode = 0;
+          $attr = preg_replace("/^'[^']*'(\s+|$)/", '', $attr);
+          break;
+        }
+
+        if (preg_match("%^([^\s\"']+)(\s+|$)%", $attr, $match))
+         # value
+        {
+          $thisval = kses_bad_protocol($match[1], $allowed_protocols);
+
+          $attrarr[] = array
+                        ('name'  => $attrname,
+                         'value' => $thisval,
+                         'whole' => "$attrname=\"$thisval\"",
+                         'vless' => 'n');
+                         # We add quotes to conform to W3C's HTML spec.
+          $working = 1; $mode = 0;
+          $attr = preg_replace("%^[^\s\"']+(\s+|$)%", '', $attr);
+        }
+
+        break;
+    } # switch
+
+    if ($working == 0) # not well formed, remove and try again
+    {
+      $attr = kses_html_error($attr);
+      $mode = 0;
+    }
+  } # while
+
+  if ($mode == 1)
+  # special case, for when the attribute list ends with a valueless
+  # attribute like "selected"
+    $attrarr[] = array
+                  ('name'  => $attrname,
+                   'value' => '',
+                   'whole' => $attrname,
+                   'vless' => 'y');
+
+  return $attrarr;
+} # function kses_hair
+
+
+function kses_check_attr_val($value, $vless, $checkname, $checkvalue)
+###############################################################################
+# This function performs different checks for attribute values. The currently
+# implemented checks are "maxlen", "minlen", "maxval", "minval" and "valueless"
+# with even more checks to come soon.
+###############################################################################
+{
+  $ok = true;
+
+  switch (strtolower($checkname))
+  {
+    case 'maxlen':
+    # The maxlen check makes sure that the attribute value has a length not
+    # greater than the given value. This can be used to avoid Buffer Overflows
+    # in WWW clients and various Internet servers.
+
+      if (strlen($value) > $checkvalue)
+        $ok = false;
+      break;
+
+    case 'minlen':
+    # The minlen check makes sure that the attribute value has a length not
+    # smaller than the given value.
+
+      if (strlen($value) < $checkvalue)
+        $ok = false;
+      break;
+
+    case 'maxval':
+    # The maxval check does two things: it checks that the attribute value is
+    # an integer from 0 and up, without an excessive amount of zeroes or
+    # whitespace (to avoid Buffer Overflows). It also checks that the attribute
+    # value is not greater than the given value.
+    # This check can be used to avoid Denial of Service attacks.
+
+      if (!preg_match('/^\s{0,6}[0-9]{1,6}\s{0,6}$/', $value))
+        $ok = false;
+      if ($value > $checkvalue)
+        $ok = false;
+      break;
+
+    case 'minval':
+    # The minval check checks that the attribute value is a positive integer,
+    # and that it is not smaller than the given value.
+
+      if (!preg_match('/^\s{0,6}[0-9]{1,6}\s{0,6}$/', $value))
+        $ok = false;
+      if ($value < $checkvalue)
+        $ok = false;
+      break;
+
+    case 'valueless':
+    # The valueless check checks if the attribute has a value
+    # (like <a href="blah">) or not (<option selected>). If the given value
+    # is a "y" or a "Y", the attribute must not have a value.
+    # If the given value is an "n" or an "N", the attribute must have one.
+
+      if (strtolower($checkvalue) != $vless)
+        $ok = false;
+      break;
+  } # switch
+
+  return $ok;
+} # function kses_check_attr_val
+
+
+function kses_bad_protocol($string, $allowed_protocols)
+###############################################################################
+# This function removes all non-allowed protocols from the beginning of
+# $string. It ignores whitespace and the case of the letters, and it does
+# understand HTML entities. It does its work in a while loop, so it won't be
+# fooled by a string like "javascript:javascript:alert(57)".
+###############################################################################
+{
+  $string = kses_no_null($string);
+  $string = preg_replace('/\xad+/', '', $string); # deals with Opera "feature"
+  $string2 = $string.'a';
+
+  while ($string != $string2)
+  {
+    $string2 = $string;
+    $string = kses_bad_protocol_once($string, $allowed_protocols);
+  } # while
+
+  return $string;
+} # function kses_bad_protocol
+
+
+function kses_no_null($string)
+###############################################################################
+# This function removes any NULL characters in $string.
+###############################################################################
+{
+  $string = preg_replace('/\0+/', '', $string);
+  $string = preg_replace('/(\\\\0)+/', '', $string);
+
+  return $string;
+} # function kses_no_null
+
+
+function kses_stripslashes($string)
+###############################################################################
+# This function changes the character sequence  \"  to just  "
+# It leaves all other slashes alone. It's really weird, but the quoting from
+# preg_replace(//e) seems to require this.
+###############################################################################
+{
+  return preg_replace('%\\\\"%', '"', $string);
+} # function kses_stripslashes
+
+
+function kses_array_lc($inarray)
+###############################################################################
+# This function goes through an array, and changes the keys to all lower case.
+###############################################################################
+{
+  $outarray = array();
+
+  foreach ($inarray as $inkey => $inval)
+  {
+    $outkey = strtolower($inkey);
+    $outarray[$outkey] = array();
+
+    foreach ($inval as $inkey2 => $inval2)
+    {
+      $outkey2 = strtolower($inkey2);
+      $outarray[$outkey][$outkey2] = $inval2;
+    } # foreach $inval
+  } # foreach $inarray
+
+  return $outarray;
+} # function kses_array_lc
+
+
+function kses_js_entities($string)
+###############################################################################
+# This function removes the HTML JavaScript entities found in early versions of
+# Netscape 4.
+###############################################################################
+{
+  return preg_replace('%&\s*\{[^}]*(\}\s*;?|$)%', '', $string);
+} # function kses_js_entities
+
+
+function kses_html_error($string)
+###############################################################################
+# This function deals with parsing errors in kses_hair(). The general plan is
+# to remove everything to and including some whitespace, but it deals with
+# quotes and apostrophes as well.
+###############################################################################
+{
+  return preg_replace('/^("[^"]*("|$)|\'[^\']*(\'|$)|\S)*\s*/', '', $string);
+} # function kses_html_error
+
+
+function kses_bad_protocol_once($string, $allowed_protocols)
+###############################################################################
+# This function searches for URL protocols at the beginning of $string, while
+# handling whitespace and HTML entities.
+###############################################################################
+{
+  return preg_replace('/^((&[^;]*;|[\sA-Za-z0-9])*)'.
+                      '(:|&#58;|&#[Xx]3[Aa];)\s*/e',
+                      'kses_bad_protocol_once2("\\1", $allowed_protocols)',
+                      $string);
+} # function kses_bad_protocol_once
+
+
+function kses_bad_protocol_once2($string, $allowed_protocols)
+###############################################################################
+# This function processes URL protocols, checks to see if they're in the white-
+# list or not, and returns different data depending on the answer.
+###############################################################################
+{
+  $string2 = kses_decode_entities($string);
+  $string2 = preg_replace('/\s/', '', $string2);
+  $string2 = kses_no_null($string2);
+  $string2 = preg_replace('/\xad+/', '', $string2);
+   # deals with Opera "feature"
+  $string2 = strtolower($string2);
+
+  $allowed = false;
+  foreach ($allowed_protocols as $one_protocol)
+    if (strtolower($one_protocol) == $string2)
+    {
+      $allowed = true;
+      break;
+    }
+
+  if ($allowed)
+    return "$string2:";
+  else
+    return '';
+} # function kses_bad_protocol_once2
+
+
+function kses_normalize_entities($string)
+###############################################################################
+# This function normalizes HTML entities. It will convert "AT&T" to the correct
+# "AT&amp;T", "&#00058;" to "&#58;", "&#XYZZY;" to "&amp;#XYZZY;" and so on.
+###############################################################################
+{
+# Disarm all entities by converting & to &amp;
+
+  $string = str_replace('&', '&amp;', $string);
+
+# Change back the allowed entities in our entity whitelist
+
+  $string = preg_replace('/&amp;([A-Za-z][A-Za-z0-9]{0,19});/',
+                         '&\\1;', $string);
+  $string = preg_replace('/&amp;#0*([0-9]{1,5});/e',
+                         'kses_normalize_entities2("\\1")', $string);
+  $string = preg_replace('/&amp;#([Xx])0*(([0-9A-Fa-f]{2}){1,2});/',
+                         '&#\\1\\2;', $string);
+
+  return $string;
+} # function kses_normalize_entities
+
+
+function kses_normalize_entities2($i)
+###############################################################################
+# This function helps kses_normalize_entities() to only accept 16 bit values
+# and nothing more for &#number; entities.
+###############################################################################
+{
+  return (($i > 65535) ? "&amp;#$i;" : "&#$i;");
+} # function kses_normalize_entities2
+
+
+function kses_decode_entities($string)
+###############################################################################
+# This function decodes numeric HTML entities (&#65; and &#x41;). It doesn't
+# do anything with other entities like &auml;, but we don't need them in the
+# URL protocol whitelisting system anyway.
+###############################################################################
+{
+  $string = preg_replace('/&#([0-9]+);/e', 'chr("\\1")', $string);
+  $string = preg_replace('/&#[Xx]([0-9A-Fa-f]+);/e', 'chr(hexdec("\\1"))',
+                         $string);
+
+  return $string;
+} # function kses_decode_entities
+
