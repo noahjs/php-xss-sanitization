@@ -14,7 +14,11 @@ Resources
 ===
 This code came from in whole or partially from the following places
 
+
 Me: http://noahjs.com
+
 WordPress: http://core.trac.wordpress.org/
+
 OWASP: https://www.owasp.org/index.php/Category:OWASP_Enterprise_Security_API
+
 KSES: http://sourceforge.net/projects/kses/
